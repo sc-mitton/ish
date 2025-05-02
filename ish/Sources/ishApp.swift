@@ -5,13 +5,74 @@
 //  Created by Spencer Mitton on 4/30/25.
 //
 
+import AVFoundation
+import Foundation
 import SwiftUI
+import UserNotifications
+import WebRTC
 
 @main
 struct ishApp: App {
+    private let config = Config.default
+    @StateObject private var supabaseService = SupabaseService()
+    @State private var isAuthenticated = false
+
+    init() {
+        requestPermissionsIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            NavigationView {
+                if isAuthenticated {
+                    MainView(
+                        signalClient: buildSignalingClient(),
+                        webRTCClient: WebRTCClient(iceServers: config.webRTCIceServers)
+                    )
+                    .navigationTitle("Ish")
+                    .navigationBarTitleDisplayMode(.large)
+                } else {
+                    PhoneSignInView()
+                }
+            }
+            .task {
+                // Check if user is already authenticated
+                let service = supabaseService
+                if (try? await service.hasSession()) == true {
+                    isAuthenticated = true
+                }
+            }
+        }
+    }
+
+    private func registerForPushNotifications() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) {
+            granted, error in
+
+        }
+    }
+
+    private func buildSignalingClient() -> SignalingClient {
+        let webSocketProvider: WebSocketProvider
+        if #available(iOS 13.0, *) {
+            webSocketProvider = NativeWebSocket(url: config.signalingServerUrl)
+        } else {
+            webSocketProvider = StarscreamWebSocket(url: config.signalingServerUrl)
+        }
+        return SignalingClient(webSocket: webSocketProvider)
+    }
+
+    private func requestPermissionsIfNeeded() {
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                print("Camera permission: \(granted)")
+            }
+        }
+
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                print("Microphone permission: \(granted)")
+            }
         }
     }
 }
@@ -20,76 +81,4 @@ struct ishApp: App {
     @_exported import HotSwiftUI
 #elseif canImport(Inject)
     @_exported import Inject
-#else
-    // This code can be found in the Swift package:
-    // https://github.com/johnno1962/HotSwiftUI or
-    // https://github.com/krzysztofzablocki/Inject
-
-    #if DEBUG
-        import Combine
-
-        public class InjectionObserver: ObservableObject {
-            public static let shared = InjectionObserver()
-            @Published var injectionNumber = 0
-            var cancellable: AnyCancellable? = nil
-            let publisher = PassthroughSubject<Void, Never>()
-            init() {
-                cancellable = NotificationCenter.default.publisher(
-                    for:
-                        Notification.Name("INJECTION_BUNDLE_NOTIFICATION")
-                )
-                .sink { [weak self] change in
-                    self?.injectionNumber += 1
-                    self?.publisher.send()
-                }
-            }
-        }
-
-        extension SwiftUI.View {
-            public func eraseToAnyView() -> some SwiftUI.View {
-                return AnyView(self)
-            }
-            public func enableInjection() -> some SwiftUI.View {
-                return eraseToAnyView()
-            }
-            public func onInjection(bumpState: @escaping () -> Void) -> some SwiftUI.View {
-                return
-                    self
-                    .onReceive(InjectionObserver.shared.publisher, perform: bumpState)
-                    .eraseToAnyView()
-            }
-        }
-
-        @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
-        @propertyWrapper
-        public struct ObserveInjection: DynamicProperty {
-            @ObservedObject private var iO = InjectionObserver.shared
-            public init() {}
-            public private(set) var wrappedValue: Int {
-                get { 0 }
-                set {}
-            }
-        }
-    #else
-        extension SwiftUI.View {
-            @inline(__always)
-            public func eraseToAnyView() -> some SwiftUI.View { return self }
-            @inline(__always)
-            public func enableInjection() -> some SwiftUI.View { return self }
-            @inline(__always)
-            public func onInjection(bumpState: @escaping () -> Void) -> some SwiftUI.View {
-                return self
-            }
-        }
-
-        @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
-        @propertyWrapper
-        public struct ObserveInjection {
-            public init() {}
-            public private(set) var wrappedValue: Int {
-                get { 0 }
-                set {}
-            }
-        }
-    #endif
 #endif

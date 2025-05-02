@@ -1,8 +1,14 @@
 //
+//  ishApp.swift
+//  ish
+//
+//  Created by Spencer Mitton on 4/30/25.
+//
+
 import Foundation
 
 // Set this to the machine's address which runs the signaling server. Do not use 'localhost' or '127.0.0.1'
-private let defaultSignalingServerUrl = URL(string: <#"ws://localhost:8080"#>)!
+private let defaultSignalingServerUrl = URL(string: "ws://localhost:8080")!
 
 // We use Google's public stun servers. For production apps you should deploy your own stun/turn servers.
 private let defaultIceServers = [
