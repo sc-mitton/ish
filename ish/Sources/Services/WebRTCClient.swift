@@ -1,10 +1,3 @@
-//
-//  ishApp.swift
-//  ish
-//
-//  Created by Spencer Mitton on 4/30/25.
-//
-
 import Foundation
 import WebRTC
 
@@ -31,8 +24,8 @@ final class WebRTCClient: NSObject {
     private let rtcAudioSession = RTCAudioSession.sharedInstance()
     private let audioQueue = DispatchQueue(label: "audio")
     private let mediaConstrains = [
-        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue,
-        kRTCMediaConstraintsOfferToReceiveVideo: kRTCMediaConstraintsValueTrue,
+        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueFalse,
+        kRTCMediaConstraintsOfferToReceiveVideo: kRTCMediaConstraintsValueFalse,
     ]
     private var videoCapturer: RTCVideoCapturer?
     private var localVideoTrack: RTCVideoTrack?
@@ -52,13 +45,14 @@ final class WebRTCClient: NSObject {
         // Unified plan is more superior than planB
         config.sdpSemantics = .unifiedPlan
 
-        // gatherContinually will let WebRTC to listen to any network changes and send any new candidates to the other client
+        // gatherContinually will let WebRTC to listen to any network changes and
+        // send any new candidates to the other client
         config.continualGatheringPolicy = .gatherContinually
 
         // Define media constraints. DtlsSrtpKeyAgreement is required to be true to be able to connect with web browsers.
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: nil,
-            optionalConstraints: ["DtlsSrtpKeyAgreement": kRTCMediaConstraintsValueTrue])
+            optionalConstraints: ["DtlsSrtpKeyAgreement": kRTCMediaConstraintsValueFalse])
 
         guard
             let peerConnection = WebRTCClient.factory.peerConnection(
@@ -280,7 +274,6 @@ extension WebRTCClient: RTCPeerConnectionDelegate {
         self.remoteDataChannel = dataChannel
     }
 }
-
 extension WebRTCClient {
     private func setTrackEnabled<T: RTCMediaStreamTrack>(_ type: T.Type, isEnabled: Bool) {
         peerConnection.transceivers

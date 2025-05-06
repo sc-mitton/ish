@@ -9,15 +9,19 @@ import SwiftUI
 import WebRTC
 
 struct MainView: View {
-    let signalClient: SignalingClient
-    let webRTCClient: WebRTCClient
-    @State private var fightCode: String = ""
-    @StateObject private var supabaseService = SupabaseService()
-    @State private var friends: [Friend] = []
+    @State private var friends: [User] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var selectedFriend: Friend?
+    @State private var selectedFriend: User?
     @State private var showFightInitiation = false
+    @State private var supabaseService: SupabaseService
+    @State private var notificationMeeting: Meeting?
+    private let signalClient: SignalingClient
+
+    init(signalClient: SignalingClient) {
+        self.signalClient = signalClient
+        self.supabaseService = SupabaseService.shared
+    }
 
     var body: some View {
         NavigationView {
@@ -57,8 +61,7 @@ struct MainView: View {
                                     Text(friend.username)
                                     Spacer()
                                     Button(action: {
-                                        selectedFriend = friend
-                                        showFightInitiation = true
+                                        initiateFight(with: friend)
                                     }) {
                                         Text("Fight")
                                             .padding(.horizontal, 12)
@@ -74,29 +77,25 @@ struct MainView: View {
                 }
                 .listStyle(InsetGroupedListStyle())
             }
-            .navigationBarItems(
-                trailing: Button("Generate Fight Code") {
-                    generateFightCode()
-                }
-            )
             .sheet(isPresented: $showFightInitiation) {
-                if let friend = selectedFriend {
-                    FightInitiationView(
-                        friend: friend,
-                        signalClient: signalClient,
-                        webRTCClient: webRTCClient,
-                        supabaseService: supabaseService
-                    )
+                FightInitiationView(
+                    signalClient: signalClient,
+                    friend: selectedFriend!,
+                    meeting: notificationMeeting
+                )
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSNotification.Name("MeetingNotification"))
+            ) { notification in
+                if let meeting = notification.userInfo?["meeting"] as? Meeting {
+                    handleMeetingNotification(meeting)
                 }
             }
             .task {
                 await fetchFriends()
             }
         }
-    }
-
-    func generateFightCode() {
-        fightCode = UUID().uuidString
     }
 
     private func fetchFriends() async {
@@ -110,5 +109,19 @@ struct MainView: View {
         }
 
         isLoading = false
+    }
+
+    func initiateFight(with friend: User) {
+        selectedFriend = friend
+        showFightInitiation = true
+    }
+
+    func handleMeetingNotification(_ meeting: Meeting) {
+        notificationMeeting = meeting
+        showFightInitiation = true
+
+        if let fromUserId = friends.first(where: { $0.id.uuidString == meeting.from }) {
+            selectedFriend = fromUserId
+        }
     }
 }

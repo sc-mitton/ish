@@ -1,5 +1,0 @@
-{
-  "imports": {
-    "@narumincho/apple-notification-jwt": "jsr:@narumincho/apple-notification-jwt"
-  }
-}

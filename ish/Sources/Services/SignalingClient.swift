@@ -1,83 +1,148 @@
 import Foundation
+import Supabase
 import WebRTC
 
 protocol SignalClientDelegate: AnyObject {
     func signalClientDidConnect(_ signalClient: SignalingClient)
     func signalClientDidDisconnect(_ signalClient: SignalingClient)
-    func signalClient(
-        _ signalClient: SignalingClient, didReceiveRemoteSdp sdp: RTCSessionDescription)
-    func signalClient(
-        _ signalClient: SignalingClient, didReceiveCandidate candidate: RTCIceCandidate)
+    func signalClient(_ signalClient: SignalingClient, didTimeout waitingForConnection: Bool)
+    func signalClient(_ signalClient: SignalingClient, didError error: Error)
 }
 
 final class SignalingClient {
-
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
-    private let webSocket: WebSocketProvider
+    private let supabase: SupabaseService
+    private let userId: String
+    private var channelId: String = ""
+    private var channel: RealtimeChannelV2!
+    private var connectionTimeoutTimer: Timer?
+    private let connectionTimeoutInterval: TimeInterval = 30  // 30 seconds timeout
     weak var delegate: SignalClientDelegate?
 
-    init(webSocket: WebSocketProvider) {
-        self.webSocket = webSocket
+    init(supabase: SupabaseService) {
+        self.supabase = supabase
+        let userId = supabase.client.auth.currentUser?.id.uuidString
+        guard let userId = userId else {
+            fatalError("User ID is nil")
+        }
+        self.userId = userId
     }
 
-    func connect() {
-        self.webSocket.delegate = self
-        self.webSocket.connect()
+    func joinMeeting(_ meeting: Meeting) async {
+        self.channelId = meeting.id
+        await self.supabase.openSocketChannel(self.channelId)
+        startConnectionTimeoutTimer()
     }
 
-    func send(sdp rtcSdp: RTCSessionDescription) {
-        let message = Message.sdp(SessionDescription(from: rtcSdp))
+    func joinMeeting(with userId: String) async {
+        self.channelId = UUID().uuidString
+        let meeting = Meeting(from: self.userId, to: userId, id: self.channelId)
+        await self.supabase.openSocketChannel(meeting.id)
+        startConnectionTimeoutTimer()
+        await notifyUser(meeting: meeting)
+    }
+
+    func notifyUser(meeting: Meeting) async {
+        // Send initial meeting request via HTTP
+        let meeting = Meeting(from: self.userId, to: userId, id: self.channelId)
         do {
-            let dataMessage = try self.encoder.encode(message)
+            let data = try self.encoder.encode(meeting)
+            guard
+                let serverURLString = Bundle.main.object(forInfoDictionaryKey: "SERVER_URL")
+                    as? String,
+                let url = URL(string: serverURLString)
+            else {
+                throw SignalingError.invalidServerURL
+            }
 
-            self.webSocket.send(data: dataMessage)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = data
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw SignalingError.invalidResponse
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                throw SignalingError.serverError(statusCode: httpResponse.statusCode)
+            }
         } catch {
-            debugPrint("Warning: Could not encode sdp: \(error)")
+            delegate?.signalClient(self, didError: error)
+            return
         }
     }
 
-    func send(candidate rtcIceCandidate: RTCIceCandidate) {
-        let message = Message.candidate(IceCandidate(from: rtcIceCandidate))
-        do {
-            let dataMessage = try self.encoder.encode(message)
-            self.webSocket.send(data: dataMessage)
-        } catch {
-            debugPrint("Warning: Could not encode candidate: \(error)")
+    private func startConnectionTimeoutTimer() {
+        // Cancel any existing timer
+        connectionTimeoutTimer?.invalidate()
+
+        // Create new timer
+        connectionTimeoutTimer = Timer.scheduledTimer(
+            withTimeInterval: connectionTimeoutInterval, repeats: false
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.handleConnectionTimeout()
+        }
+    }
+
+    private func handleConnectionTimeout() {
+        delegate?.signalClient(self, didTimeout: true)
+        closeConnection()
+    }
+
+    private func closeConnection() {
+        connectionTimeoutTimer?.invalidate()
+        connectionTimeoutTimer = nil
+        channelId = ""
+        channel = nil
+        delegate?.signalClientDidDisconnect(self)
+    }
+}
+
+extension SignalingClient: SupabaseServiceDelegate {
+    func broadcasted(_ supabaseService: SupabaseService, didReceiveData data: JSONObject) {
+        self.handleReceivedData(data)
+    }
+
+    func broadcastChannelOpened(_ supabaseService: SupabaseService) {
+        self.delegate?.signalClientDidConnect(self)
+    }
+
+    func broadcastChannelClosed(_ supabaseService: SupabaseService) {
+        closeConnection()
+    }
+
+    func handleReceivedData(_ data: JSONObject) {
+        let message = try! self.decoder.decode(
+            Message.self, from: JSONSerialization.data(withJSONObject: data))
+
+        switch message {
+        case .candidate(let iceCandidate):
+            print("send back candidates")
+        case .sdp(let sessionDescription):
+            print("send answer")
+        case .joined(let joinedAck):
+            print("send offer")
         }
     }
 }
 
-extension SignalingClient: WebSocketProviderDelegate {
-    func webSocketDidConnect(_ webSocket: WebSocketProvider) {
-        self.delegate?.signalClientDidConnect(self)
-    }
+enum SignalingError: LocalizedError {
+    case invalidServerURL
+    case invalidResponse
+    case serverError(statusCode: Int)
 
-    func webSocketDidDisconnect(_ webSocket: WebSocketProvider) {
-        self.delegate?.signalClientDidDisconnect(self)
-
-        // try to reconnect every two seconds
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-            debugPrint("Trying to reconnect to signaling server...")
-            self.webSocket.connect()
-        }
-    }
-
-    func webSocket(_ webSocket: WebSocketProvider, didReceiveData data: Data) {
-        let message: Message
-        do {
-            message = try self.decoder.decode(Message.self, from: data)
-        } catch {
-            debugPrint("Warning: Could not decode incoming message: \(error)")
-            return
-        }
-
-        switch message {
-        case .candidate(let iceCandidate):
-            self.delegate?.signalClient(self, didReceiveCandidate: iceCandidate.rtcIceCandidate)
-        case .sdp(let sessionDescription):
-            self.delegate?.signalClient(
-                self, didReceiveRemoteSdp: sessionDescription.rtcSessionDescription)
+    var errorDescription: String? {
+        switch self {
+        case .invalidServerURL:
+            return "Invalid server URL configuration"
+        case .invalidResponse:
+            return "Invalid server response"
+        case .serverError(let statusCode):
+            return "Server error with status code: \(statusCode)"
         }
     }
 }

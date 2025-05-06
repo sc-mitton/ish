@@ -1,11 +1,15 @@
 import SwiftUI
 
 struct PhoneSignInView: View {
-    @StateObject private var supabaseService = SupabaseService()
+    @State private var supabaseService: SupabaseService
     @State private var phoneNumber = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showOTPView = false
+
+    init() {
+        self.supabaseService = SupabaseService.shared
+    }
 
     var formattedPhoneNumber: String {
         let cleaned = phoneNumber.filter { $0.isNumber }

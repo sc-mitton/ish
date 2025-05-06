@@ -3,6 +3,10 @@ import Supabase
 
 class SupabaseService: ObservableObject {
     public let client: SupabaseClient
+    weak var delegate: SupabaseServiceDelegate?
+
+    static let shared = SupabaseService()
+    private var channel: RealtimeChannelV2!
 
     init() {
         guard let supabaseURL = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
@@ -20,8 +24,46 @@ class SupabaseService: ObservableObject {
     }
 
     func hasSession() async throws -> Bool {
-        let session = try? await client.auth.session
+        let session = try await client.auth.session
         return session != nil
+    }
+
+    func openSocketChannel(_ channelId: String) async {
+        self.channel = self.client.channel(channelId) { config in
+            config.isPrivate = true
+        }
+        self.delegate?.broadcastChannelOpened(self)
+        await self.listenForBroadcastMessages()
+    }
+
+    func addChannelAccess(_ channelId: String, owner: String, members: [String]) async throws {
+        try await client.from("meeting_users")
+            .insert(["meeting_topic": channelId, "user_id": owner, "is_owner": "true"])
+            .execute()
+        for member in members {
+            try await client.from("meeting_users").insert([
+                "meeting_topic": channelId, "user_id": member, "is_owner": "false",
+            ]).execute()
+        }
+    }
+
+    func cleanupChannelAccess(_ channelId: String) async throws {
+        try await client.from("meeting_users")
+            .delete()
+            .eq("meeting_topic", value: channelId)
+            .execute()
+        try await client.from("meetings")
+            .delete()
+            .eq("id", value: channelId)
+            .execute()
+    }
+
+    func listenForBroadcastMessages() async {
+        let broadcastStream = self.channel.broadcastStream(event: "broadcast")
+        await self.channel.subscribe()
+        for await message in broadcastStream {
+            self.delegate?.broadcasted(self, didReceiveData: message)
+        }
     }
 
     func signInWithPhoneNumber(_ phoneNumber: String) async throws {
@@ -47,7 +89,7 @@ class SupabaseService: ObservableObject {
             .execute()
     }
 
-    func getFriends() async throws -> [Friend] {
+    func getFriends() async throws -> [User] {
         let session = try await client.auth.session
         let userId = session.user.id
 
@@ -62,10 +104,16 @@ class SupabaseService: ObservableObject {
         // Parse the response and create Friend objects
         let friendsData = try JSONDecoder().decode([FriendResponse].self, from: response.data)
         return friendsData.map { response in
-            Friend(
+            User(
                 id: response.id,
                 username: response.friend.username
             )
         }
     }
+}
+
+protocol SupabaseServiceDelegate: AnyObject {
+    func broadcasted(_ supabaseService: SupabaseService, didReceiveData data: JSONObject)
+    func broadcastChannelOpened(_ supabaseService: SupabaseService)
+    func broadcastChannelClosed(_ supabaseService: SupabaseService)
 }

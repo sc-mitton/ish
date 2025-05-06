@@ -14,23 +14,22 @@ import WebRTC
 @main
 struct ishApp: App {
     private let config = Config.default
-    @StateObject private var supabaseService = SupabaseService()
+    @StateObject private var supabaseService = SupabaseService.shared
     @State private var isAuthenticated = false
+    @State private var currentMeeting: Meeting?
 
     init() {
         requestPermissionsIfNeeded()
+        registerForPushNotifications()
     }
 
     var body: some Scene {
         WindowGroup {
             NavigationView {
                 if isAuthenticated {
-                    MainView(
-                        signalClient: buildSignalingClient(),
-                        webRTCClient: WebRTCClient(iceServers: config.webRTCIceServers)
-                    )
-                    .navigationTitle("Ish")
-                    .navigationBarTitleDisplayMode(.large)
+                    MainView(signalClient: buildSignalingClient())
+                        .navigationTitle("Ish")
+                        .navigationBarTitleDisplayMode(.large)
                 } else {
                     PhoneSignInView()
                 }
@@ -45,21 +44,23 @@ struct ishApp: App {
         }
     }
 
+    private func didReceiveRemoteNotification(meetingNotification: MeetingNotification) {
+        currentMeeting = meetingNotification.meeting
+    }
+
     private func registerForPushNotifications() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) {
             granted, error in
-
+            if granted {
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
         }
     }
 
     private func buildSignalingClient() -> SignalingClient {
-        let webSocketProvider: WebSocketProvider
-        if #available(iOS 13.0, *) {
-            webSocketProvider = NativeWebSocket(url: config.signalingServerUrl)
-        } else {
-            webSocketProvider = StarscreamWebSocket(url: config.signalingServerUrl)
-        }
-        return SignalingClient(webSocket: webSocketProvider)
+        return SignalingClient(supabase: supabaseService)
     }
 
     private func requestPermissionsIfNeeded() {
@@ -82,3 +83,9 @@ struct ishApp: App {
 #elseif canImport(Inject)
     @_exported import Inject
 #endif
+
+extension Meeting: Equatable {
+    public static func == (lhs: Meeting, rhs: Meeting) -> Bool {
+        lhs.id == rhs.id
+    }
+}

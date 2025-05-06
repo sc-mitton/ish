@@ -6,10 +6,12 @@
 //
 
 import Foundation
+import WebRTC
 
 enum Message {
     case sdp(SessionDescription)
     case candidate(IceCandidate)
+    case joined(JoinedAck)
 }
 
 extension Message: Codable {
@@ -35,6 +37,9 @@ extension Message: Codable {
         case .candidate(let iceCandidate):
             try container.encode(iceCandidate, forKey: .payload)
             try container.encode(String(describing: IceCandidate.self), forKey: .type)
+        case .joined(let joinedAck):
+            try container.encode(joinedAck, forKey: .payload)
+            try container.encode(String(describing: JoinedAck.self), forKey: .type)
         }
     }
 

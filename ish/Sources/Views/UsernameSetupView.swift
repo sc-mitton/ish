@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct UsernameSetupView: View {
-    @StateObject private var supabaseService = SupabaseService()
+    @StateObject private var supabaseService = SupabaseService.shared
     @State private var username = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -44,7 +44,6 @@ struct UsernameSetupView: View {
         .navigationDestination(isPresented: $showMainView) {
             MainView(
                 signalClient: buildSignalingClient(),
-                webRTCClient: WebRTCClient(iceServers: Config.default.webRTCIceServers)
             )
         }
     }
@@ -64,12 +63,6 @@ struct UsernameSetupView: View {
     }
 
     private func buildSignalingClient() -> SignalingClient {
-        let webSocketProvider: WebSocketProvider
-        if #available(iOS 13.0, *) {
-            webSocketProvider = NativeWebSocket(url: Config.default.signalingServerUrl)
-        } else {
-            webSocketProvider = StarscreamWebSocket(url: Config.default.signalingServerUrl)
-        }
-        return SignalingClient(webSocket: webSocketProvider)
+        return SignalingClient(supabase: supabaseService)
     }
 }
