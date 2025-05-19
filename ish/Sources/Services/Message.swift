@@ -19,7 +19,7 @@ extension Message: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(String.self, forKey: .type)
         switch type {
-        case String(describing: SessionDescription.self):
+        case String(describing: RTCSessionDescription.self):
             self = .sdp(try container.decode(SessionDescription.self, forKey: .payload))
         case String(describing: IceCandidate.self):
             self = .candidate(try container.decode(IceCandidate.self, forKey: .payload))

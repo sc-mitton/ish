@@ -4,17 +4,19 @@ import SwiftUI
 import WebRTC
 
 struct FightInitiationView: View {
-    let signalClient: SignalingClient
     let friend: User
     let meeting: Meeting?
     let supabaseService = SupabaseService.shared
+    let webRTCClient: WebRTCClient
 
     @StateObject private var viewModel: FightInitiationViewModel
 
-    init(signalClient: SignalingClient, friend: User, meeting: Meeting?) {
-        self.signalClient = signalClient
+    init(friend: User, meeting: Meeting?) {
         self.meeting = meeting
         self.friend = friend
+
+        self.webRTCClient = WebRTCClient(iceServers: WebRTCConfig.default.iceServers)
+        let signalClient = SignalClient(supabase: supabaseService, webRTCClient: webRTCClient)
 
         self._viewModel = StateObject(
             wrappedValue: FightInitiationViewModel(
@@ -27,28 +29,6 @@ struct FightInitiationView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                if viewModel.isConnecting {
-                    ProgressView("Connecting to \(friend.username)...")
-                        .padding()
-                } else if let error = viewModel.errorMessage {
-                    VStack(spacing: 16) {
-                        Text(error)
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.center)
-                            .padding()
-
-                        Button("Try Again") {
-                            Task {
-                                await viewModel.connect()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    Text("Initiating fight with \(friend.username)")
-                        .font(.title)
-                        .padding()
-                }
             }
             .padding()
             .navigationTitle("Fight Initiation")

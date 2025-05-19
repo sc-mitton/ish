@@ -3,10 +3,11 @@ import Supabase
 
 class SupabaseService: ObservableObject {
     public let client: SupabaseClient
-    weak var delegate: SupabaseServiceDelegate?
-
-    static let shared = SupabaseService()
+    private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
     private var channel: RealtimeChannelV2!
+    weak var delegate: SupabaseServiceDelegate?
+    static let shared = SupabaseService()
 
     init() {
         guard let supabaseURL = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
@@ -32,13 +33,36 @@ class SupabaseService: ObservableObject {
         self.channel = self.client.channel(channelId) { config in
             config.isPrivate = true
         }
-        self.delegate?.broadcastChannelOpened(self)
         await self.listenForBroadcastMessages()
+    }
+
+    private func listenForBroadcastMessages() async {
+        let broadcastStream = self.channel.broadcastStream(event: "broadcast")
+        await self.channel.subscribe()
+        for await broadcastMessage in broadcastStream {
+            let message: Message
+
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: broadcastMessage)
+                message = try decoder.decode(Message.self, from: jsonData)
+            } catch {
+                print("Error decoding message: \(error)")
+                return
+            }
+            await self.delegate?.broadcasted(self, didReceiveMessage: message)
+        }
+    }
+
+    func broadcastMessage(_ message: Message) async throws {
+        try await self.channel.broadcast(event: "broadcast", message: message)
     }
 
     func addChannelAccess(_ channelId: String, owner: String, members: [String]) async throws {
         try await client.from("meeting_users")
-            .insert(["meeting_topic": channelId, "user_id": owner, "is_owner": "true"])
+            .upsert(
+                ["meeting_topic": channelId, "user_id": owner, "is_owner": "true"],
+                onConflict: "meeting_topic,user_id"
+            )
             .execute()
         for member in members {
             try await client.from("meeting_users").insert([
@@ -56,14 +80,6 @@ class SupabaseService: ObservableObject {
             .delete()
             .eq("id", value: channelId)
             .execute()
-    }
-
-    func listenForBroadcastMessages() async {
-        let broadcastStream = self.channel.broadcastStream(event: "broadcast")
-        await self.channel.subscribe()
-        for await message in broadcastStream {
-            self.delegate?.broadcasted(self, didReceiveData: message)
-        }
     }
 
     func signInWithPhoneNumber(_ phoneNumber: String) async throws {
@@ -113,7 +129,6 @@ class SupabaseService: ObservableObject {
 }
 
 protocol SupabaseServiceDelegate: AnyObject {
-    func broadcasted(_ supabaseService: SupabaseService, didReceiveData data: JSONObject)
-    func broadcastChannelOpened(_ supabaseService: SupabaseService)
+    func broadcasted(_ supabaseService: SupabaseService, didReceiveMessage message: Message) async
     func broadcastChannelClosed(_ supabaseService: SupabaseService)
 }

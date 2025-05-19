@@ -14,14 +14,9 @@ struct MainView: View {
     @State private var errorMessage: String?
     @State private var selectedFriend: User?
     @State private var showFightInitiation = false
-    @State private var supabaseService: SupabaseService
     @State private var notificationMeeting: Meeting?
-    private let signalClient: SignalingClient
 
-    init(signalClient: SignalingClient) {
-        self.signalClient = signalClient
-        self.supabaseService = SupabaseService.shared
-    }
+    private var supabaseService = SupabaseService.shared
 
     var body: some View {
         NavigationView {
@@ -79,7 +74,6 @@ struct MainView: View {
             }
             .sheet(isPresented: $showFightInitiation) {
                 FightInitiationView(
-                    signalClient: signalClient,
                     friend: selectedFriend!,
                     meeting: notificationMeeting
                 )
@@ -118,10 +112,9 @@ struct MainView: View {
 
     func handleMeetingNotification(_ meeting: Meeting) {
         notificationMeeting = meeting
-        showFightInitiation = true
-
         if let fromUserId = friends.first(where: { $0.id.uuidString == meeting.from }) {
             selectedFriend = fromUserId
         }
+        showFightInitiation = true
     }
 }

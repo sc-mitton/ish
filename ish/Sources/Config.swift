@@ -21,9 +21,9 @@ private let defaultIceServers = [
     "stun:stun4.l.google.com:5349",
 ]
 
-struct Config {
-    let webRTCIceServers: [String]
+struct WebRTCConfig {
+    let iceServers: [String]
 
-    static let `default` = Config(
-        webRTCIceServers: defaultIceServers)
+    static let `default` = WebRTCConfig(
+        iceServers: defaultIceServers)
 }

@@ -13,7 +13,7 @@ import WebRTC
 
 @main
 struct ishApp: App {
-    private let config = Config.default
+    private let config = WebRTCConfig.default
     @StateObject private var supabaseService = SupabaseService.shared
     @State private var isAuthenticated = false
     @State private var currentMeeting: Meeting?
@@ -27,7 +27,7 @@ struct ishApp: App {
         WindowGroup {
             NavigationView {
                 if isAuthenticated {
-                    MainView(signalClient: buildSignalingClient())
+                    MainView()
                         .navigationTitle("Ish")
                         .navigationBarTitleDisplayMode(.large)
                 } else {
@@ -57,10 +57,6 @@ struct ishApp: App {
                 }
             }
         }
-    }
-
-    private func buildSignalingClient() -> SignalingClient {
-        return SignalingClient(supabase: supabaseService)
     }
 
     private func requestPermissionsIfNeeded() {
